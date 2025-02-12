@@ -177,7 +177,7 @@ export const getIndicator = (forestType, landCategory) => {
       : landCatLabel.toLowerCase();
 
   if (forestType && landCategory) {
-    label = `${forestTypeLabel} and ${landCatLabel}`;
+    label = `${forestTypeLabel} PLACEHOLDER ${landCatLabel}`;
     value = `${forestType.value}__${landCategory.value}`;
   } else if (landCategory) {
     label = landCatLabel;
@@ -439,6 +439,10 @@ export const getStatements = ({
       : null,
     ...(indicatorStatements || []),
   ]);
+
+  if (dataType === 'naturalForest') {
+    return [];
+  }
 
   return statements;
 };

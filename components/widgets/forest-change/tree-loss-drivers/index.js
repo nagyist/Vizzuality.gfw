@@ -17,7 +17,7 @@ import { getExtent, getLoss } from 'services/analysis-cached';
 import getWidgetProps from './selectors';
 
 const MIN_YEAR = 2001;
-const MAX_YEAR = 2022;
+const MAX_YEAR = 2023;
 
 export default {
   ...treeLoss,
@@ -30,12 +30,6 @@ export default {
   admins: ['global', 'adm0'],
   alerts: {
     default: [
-      {
-        id: 'tree-loss-drivers-alert-2',
-        text: `2023 loss data is currently available only for specific analyses. Note that this widget does not reflect updated data. [Click here](https://gfw2-data.s3.amazonaws.com/country-pages/country_stats/download/gfw_2023_statistics_summary.xlsx) to access a file with country-level 2023 loss data.`,
-        icon: 'warning',
-        visible: ['global', 'country', 'geostore', 'aoi', 'wdpa', 'use'],
-      },
       {
         id: 'tree-loss-drivers-alert-1',
         text: `The methods behind this data have changed over time. Be cautious comparing old and new, data especially before/after 2015. [Read more here](https://www.globalforestwatch.org/blog/data-and-research/tree-cover-loss-satellite-data-trend-analysis/).`,
@@ -54,6 +48,14 @@ export default {
     ],
   },
   settingsConfig: [
+    {
+      key: 'forestType',
+      label: 'Forest Type',
+      whitelist: ['plantations'],
+      type: 'select',
+      placeholder: 'All tree cover',
+      clearable: true,
+    },
     {
       key: 'tscDriverGroup',
       label: 'drivers',
@@ -92,7 +94,7 @@ export default {
       layers: [TREE_COVER_LOSS_BY_DOMINANT_DRIVER],
     },
   ],
-  metaKey: 'widget_tsc_drivers',
+  metaKey: 'tsc_tree_cover_loss_drivers_v2023',
   sortOrder: {
     summary: 1,
     forestChange: 1,
@@ -107,10 +109,14 @@ export default {
   sentences: {
     initial:
       'In {location} from {startYear} to {endYear}, {permPercent} of tree cover loss occurred in areas where the dominant drivers of loss resulted in {deforestation}.',
+    initialWithIndicator:
+      'In {location} from {startYear} to {endYear}, {permPercent} of tree cover loss in {indicator} occurred in areas where the dominant drivers of loss resulted in {deforestation}.',
     noLoss:
       'In {location} from {startYear} to {endYear}, <b>no</b> tree cover loss occurred in areas where the dominant drivers of loss resulted in {deforestation}.',
     globalInitial:
       '{location} from {startYear} to {endYear}, {permPercent} of tree cover loss occurred in areas where the dominant drivers of loss resulted in {deforestation}.',
+    globalWithIndicator:
+      '{location} from {startYear} to {endYear}, {permPercent} of tree cover loss in {indicator} occurred in areas where the dominant drivers of loss resulted in {deforestation}.',
   },
   whitelists: {
     checkStatus: true,
@@ -150,7 +156,12 @@ export default {
       })
     ),
   getDataURL: (params) => [
-    getLoss({ ...params, landCategory: 'tsc', lossTsc: true, download: true }),
+    getLoss({
+      ...params,
+      landCategory: 'tsc',
+      lossTsc: true,
+      download: true,
+    }),
     getExtent({ ...params, download: true }),
   ],
   getWidgetProps,

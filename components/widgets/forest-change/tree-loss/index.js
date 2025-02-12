@@ -1,8 +1,11 @@
 import { all, spread } from 'axios';
 
-import { getExtent, getLoss, getLossGrouped } from 'services/analysis-cached';
-
-import OTFAnalysis from 'services/otf-analysis';
+import {
+  getExtent,
+  getLoss,
+  getLossGrouped,
+  getTreeLossOTF,
+} from 'services/analysis-cached';
 
 import { getYearsRangeFromMinMax } from 'components/widgets/utils/data';
 
@@ -28,41 +31,6 @@ const getGlobalLocation = (params) => ({
   adm2: params.type === 'global' ? null : params.adm2,
 });
 
-const getOTFAnalysis = async (params) => {
-  const analysis = new OTFAnalysis(params.geostore.id);
-  analysis.setDates({
-    startDate: params.startDate,
-    endDate: params.endDate,
-  });
-
-  analysis.setData(['loss', 'extent'], params);
-
-  return analysis.getData().then((response) => {
-    const { loss, extent } = response;
-    const {
-      startYear,
-      endYear,
-      range: yearsRange,
-    } = getYearsRangeFromMinMax(MIN_YEAR, MAX_YEAR);
-
-    return {
-      loss: loss.map((d) => ({
-        area: d.area__ha,
-        year: d.umd_tree_cover_loss__year,
-      })),
-      extent: extent?.[0]?.area__ha,
-      settings: {
-        startYear,
-        endYear,
-        yearsRange,
-      },
-      options: {
-        yearsRange,
-      },
-    };
-  });
-};
-
 export default {
   widget: 'treeLoss',
   title: 'Tree cover loss in {location}',
@@ -84,7 +52,7 @@ export default {
     {
       key: 'forestType',
       label: 'Forest Type',
-      whitelist: ['ifl', 'mangroves_2016'],
+      whitelist: ['ifl', 'mangroves_2016', 'plantations'],
       type: 'select',
       placeholder: 'All tree cover',
       clearable: true,
@@ -152,16 +120,22 @@ export default {
     threshold: 30,
     extentYear: 2000,
     ifl: 2000,
+    startYear: MIN_YEAR,
+    endYear: MAX_YEAR,
   },
   getData: (params = {}) => {
     const { adm0, adm1, adm2, type } = params || {};
+    const globalLocation = {
+      adm0: type === 'global' ? null : adm0,
+      adm1: type === 'global' ? null : adm1,
+      adm2: type === 'global' ? null : adm2,
+    };
+    const { startYear, endYear, range } = getYearsRangeFromMinMax(
+      MIN_YEAR,
+      MAX_YEAR
+    );
 
     if (shouldQueryPrecomputedTables(params)) {
-      const globalLocation = {
-        adm0: type === 'global' ? null : adm0,
-        adm1: type === 'global' ? null : adm1,
-        adm2: type === 'global' ? null : adm2,
-      };
       const lossFetch =
         type === 'global'
           ? getLossGrouped({ ...params, ...globalLocation })
@@ -176,10 +150,6 @@ export default {
             };
           }
 
-          const { startYear, endYear, range } = getYearsRangeFromMinMax(
-            MIN_YEAR,
-            MAX_YEAR
-          );
           return {
             ...data,
             settings: {
@@ -195,7 +165,20 @@ export default {
       );
     }
 
-    return getOTFAnalysis(params);
+    return getTreeLossOTF({ ...params, ...globalLocation }).then((response) => {
+      return {
+        loss: response.loss,
+        extent: response.extent,
+        settings: {
+          startYear,
+          endYear,
+          yearsRange: range,
+        },
+        options: {
+          years: range,
+        },
+      };
+    });
   },
   getDataURL: (params) => {
     const globalLocation = getGlobalLocation(params);

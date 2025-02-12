@@ -9,7 +9,6 @@ import { useTrackPage } from 'utils/analytics';
 import { useSetLanguage } from 'utils/lang';
 
 import Head from 'wrappers/head';
-import Cookies from 'wrappers/cookies';
 
 import Footer from 'components/footer';
 import ContactUsModal from 'components/modals/contact-us';
@@ -27,6 +26,7 @@ const PageWrapper = ({
   error,
   errorTitle,
   errorDescription,
+  debugErrors,
   notifications,
 }) => {
   useTrackPage();
@@ -55,12 +55,12 @@ const PageWrapper = ({
                 errorDescription ||
                 'You may have mistyped the address or the page may have moved.'
               }
+              errors={debugErrors}
             />
           )}
           {!isFallback && !error && children}
         </div>
         {showFooter && <Footer />}
-        <Cookies />
         <ContactUsModal />
       </div>
     </MediaContextProvider>
@@ -77,6 +77,7 @@ PageWrapper.propTypes = {
   error: PropTypes.number,
   errorTitle: PropTypes.string,
   errorDescription: PropTypes.string,
+  debugErrors: PropTypes.array || PropTypes.object,
   notifications: PropTypes.array,
 };
 

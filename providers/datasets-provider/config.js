@@ -55,6 +55,39 @@ const decodes = {
       alpha = 0.;
     }
   `,
+  treeCoverGain5y: `
+  // values for creating power scale, domain (input), and range (output)
+  float domainMin = 0.;
+  float domainMax = 255.;
+  float rangeMin = 0.;
+  float rangeMax = 255.;
+
+  float exponent = zoom < 13. ? 0.3 + (zoom - 3.) / 20. : 1.;
+  float intensity = color.r * 255.;
+
+  // get the min, max, and current values on the power scale
+  float minPow = pow(domainMin, exponent - domainMin);
+  float maxPow = pow(domainMax, exponent);
+  float currentPow = pow(intensity, exponent);
+
+  // get intensity value mapped to range
+  float scaleIntensity = ((currentPow - minPow) / (maxPow - minPow) * (rangeMax - rangeMin)) + rangeMin;
+  // a value between 0 and 255
+  alpha = zoom < 13. ? scaleIntensity / 255. : color.g;
+
+  float year = 1999.0 + ((color.b * 5.) * 255.);
+  // map to years
+  // Old colors: 109, 72, 33
+  // New colors: 19, 3, 255
+  if (year >= startYear && year <= endYear && year >= 2001.) {
+    color.r = 19. / 255.;
+    color.g = (72. - zoom + 3. - scaleIntensity / zoom) / 255.;
+    color.b = (33. - zoom + 255. - intensity / zoom) / 255.;
+    alpha = (8. * intensity) / 255.;
+  } else {
+    alpha = 0.;
+  }
+`,
   treeCoverLossFire: `
   // values for creating power scale, domain (input), and range (output)
   float domainMin = 0.;
@@ -541,6 +574,51 @@ const decodes = {
         color.r = 220. / 255.;
         color.g = 102. / 255.;
         color.b = 153. / 255.;
+        alpha = intensity / 255.;
+      }
+    } else {
+      alpha = 0.;
+    }
+  `,
+  distAlerts: `
+  // values for creating power scale, domain (input), and range (output)
+    float confidenceValue = 0.;
+    if (confirmedOnly > 0.) {
+      confidenceValue = 1.;
+    }
+
+    float r = color.r * 255.;
+    float g = color.g * 255.;
+    float b = color.b * 255.;
+
+    // **** CHECK THIS
+    // 1461 = days from 2019/01/01 to 2014/12/31
+    // 1870 = days from 2020/02/14 to 2014/12/31
+    float day = (r * 255.) + g;
+
+    float confidence = floor(b / 100.);
+    if (
+      day > 0. &&
+      day >= startDayIndex &&
+      day <= endDayIndex  &&
+      confidence >= confidenceValue &&
+      alpha > 0.
+    ) {
+      // get intensity
+      float intensity = mod(b, 100.) * 50.;
+      // float intensity = 255.;
+      if (intensity > 255.) {
+        intensity = 255.;
+      }
+      if (confidence < 2.) {
+        color.r = 238. / 255.;
+        color.g = 177. / 255.;
+        color.b = 177. / 255.;
+        alpha = intensity / 255.;
+      } else {
+        color.r = 137. / 255.;
+        color.g = 82. / 255.;
+        color.b = 119. / 255.;
         alpha = intensity / 255.;
       }
     } else {
@@ -1051,6 +1129,7 @@ const decodes = {
 export default {
   treeCover: decodes.treeCover,
   treeCoverLoss: decodes.treeCoverLoss,
+  treeCoverGain5y: decodes.treeCoverGain5y,
   treeCoverLossFire: decodes.treeCoverLossFire,
   treeLossByDriver: decodes.treeLossByDriver,
   integratedAlerts8Bit: decodes.integratedAlerts8Bit,
@@ -1058,6 +1137,7 @@ export default {
   GLADs: decodes.GLADs,
   RADDs: decodes.RADDs,
   RADDs2yearsTimeline: decodes.RADDs2yearsTimeline,
+  distAlerts: decodes.distAlerts,
   RADDsCoverage: decodes.RADDsCoverage,
   staticRemap: decodes.staticRemap,
   staticRemapAlpha: decodes.staticRemapAlpha,

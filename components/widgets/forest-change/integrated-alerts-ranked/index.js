@@ -30,12 +30,6 @@ export default {
   categories: ['forest-change'],
   subcategories: ['forest-loss'],
   types: ['country'],
-  alerts: [
-    {
-      text: `We are collecting user feedback for how we can improve the integrated deforestation alerts. Please provide your feedback through this [survey](https://survey.alchemer.com/s3/7460286/give-feedback-on-GFW-integrated-deforestation-alerts) or email us at [gfw@wri.org](mailto:gfw@wri.org)!`,
-      visible: ['country', 'geostore', 'aoi', 'wdpa', 'use'],
-    },
-  ],
   admins: ['adm0', 'adm1'],
   settingsConfig: [
     {
@@ -136,7 +130,7 @@ export default {
     // extract relevant metadata
     const { weeks } = params;
     const { startDate, endDate } = getWeeksRange(weeks);
-    const geostoreId = params?.geostore?.hash;
+    const geostoreId = params?.geostore?.hash || params?.geostore?.id;
     const alertSystem = params?.deforestationAlertsDataset;
 
     if (shouldQueryPrecomputedTables(params)) {

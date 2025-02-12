@@ -276,6 +276,7 @@ import '../components/widget/styles.scss';
 import '../components/widgets/styles.scss';
 import '../components/widget/components/widget-alert/styles.scss';
 import '../components/widget/components/widget-body/styles.scss';
+import '../components/widget/components/widget-chart-legend/styles.scss';
 import '../components/widget/components/widget-chart-and-list/styles.scss';
 import '../components/widget/components/widget-chart-list/styles.scss';
 import '../components/widget/components/widget-footer/styles.scss';
@@ -361,7 +362,6 @@ import '../layouts/topics/components/topics-slide/styles.scss';
 import '../layouts/topics/styles.scss';
 
 // WRAPPERS
-import '../wrappers/cookies/styles.scss';
 import '../wrappers/embed/styles.scss';
 import '../wrappers/fullscreen/styles.scss';
 import '../wrappers/page/styles.scss';

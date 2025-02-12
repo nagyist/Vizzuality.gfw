@@ -1,12 +1,23 @@
 /* eslint-disable prefer-destructuring */
 import { createSelector, createStructuredSelector } from 'reselect';
+import {
+  isWithinInterval,
+  startOfWeek,
+  endOfWeek,
+  eachWeekOfInterval,
+  getYear,
+  getWeek,
+} from 'date-fns';
 import moment from 'moment';
 import { formatNumber } from 'utils/format';
+import { translateText } from 'utils/lang';
+import { localizeDate, localizeWidgetSentenceDate } from 'utils/localize-date';
 import isEmpty from 'lodash/isEmpty';
 import sortBy from 'lodash/sortBy';
 import orderBy from 'lodash/orderBy';
 import sumBy from 'lodash/sumBy';
 import groupBy from 'lodash/groupBy';
+import toArray from 'lodash/toArray';
 import max from 'lodash/max';
 import min from 'lodash/min';
 
@@ -29,17 +40,94 @@ const getLocationName = (state) => state.locationLabel;
 const getLang = (state) => state.lang || null;
 const getOptionsSelected = (state) => state.optionsSelected;
 const getIndicator = (state) => state.indicator;
+const getLanguage = (state) => state.lang;
 
 const MINGAP = 4;
 
+const generateYearWeekArray = (startDate, endDate) => {
+  const weeks = eachWeekOfInterval(
+    {
+      start: startOfWeek(startDate, { weekStartsOn: 1 }),
+      end: endOfWeek(endDate, { weekStartsOn: 1 }),
+    },
+    { weekStartsOn: 1 }
+  );
+
+  return weeks.map((date) => ({
+    year: getYear(date),
+    week: getWeek(date, { weekStartsOn: 1 }),
+  }));
+};
+
+const getAllAlerts = createSelector([getAlerts], (alerts) => {
+  if (!alerts) return null;
+
+  const filler = { iso: alerts[0]?.iso, alert__count: 0, confidence__cat: 'h' };
+  const minYear = '2012';
+  const maxYear = new Date();
+
+  const yearProperty = 'alert__year';
+  const weekProperty = 'alert__week';
+
+  const start = new Date(minYear?.toString());
+  const end = new Date(maxYear?.toString());
+  const completeYearWeekArray = generateYearWeekArray(start, end);
+
+  // Create a set of existing year-week combinations for quick lookup
+  const existingAlerts = new Set(
+    alerts.map((alert) => `${alert[yearProperty]}-${alert[weekProperty]}`)
+  );
+
+  // Iterate through the complete array and add missing values
+  const mockedAlerts = completeYearWeekArray.map((item) => {
+    const weekStartDate = startOfWeek(
+      new Date(item.year, 0, (item.week - 1) * 7),
+      { weekStartsOn: 1 }
+    );
+    const weekEndDate = endOfWeek(new Date(item.year, 0, (item.week - 1) * 7), {
+      weekStartsOn: 1,
+    });
+
+    if (
+      isWithinInterval(weekStartDate, { start, end }) ||
+      isWithinInterval(weekEndDate, { start, end })
+    ) {
+      const key = `${item.year}-${item.week}`;
+
+      if (!existingAlerts.has(key)) {
+        const mockedAlert = {
+          [yearProperty]: item.year,
+          [weekProperty]: item.week,
+          ...filler,
+        };
+
+        return mockedAlert;
+      }
+    }
+
+    return null;
+  });
+
+  const allAlerts = [...alerts, ...mockedAlerts.filter((item) => !!item)];
+
+  // Sort the array again by year and week properties to maintain order
+  allAlerts.sort((a, b) => {
+    if (a[yearProperty] === b[yearProperty]) {
+      return a[weekProperty] - b[weekProperty];
+    }
+    return a[yearProperty] - b[yearProperty];
+  });
+
+  return allAlerts;
+});
+
 export const getData = createSelector(
-  [getAlerts, getLatest],
+  [getAllAlerts, getLatest],
   (data, latest) => {
     if (!data || isEmpty(data)) return null;
-
     const parsedData = data.map((d) => ({
       ...d,
-      count: d.alert__count || d.area_ha,
+      count: d.alert__count || d.area_ha || 0,
       week: parseInt(d.alert__week, 10),
       year: parseInt(d.alert__year, 10),
     }));
@@ -71,7 +159,7 @@ export const getData = createSelector(
     };
 
     years.forEach((year) => {
-      const yearDataByWeek = groupBy(groupedByYear[year], 'week');
+      const yearDataByWeek = toArray(groupBy(groupedByYear[year], 'week'));
       const lastWeekOfYearIso = moment(`${year}-12-31`).isoWeek();
       const yearLength = { [year]: moment(`${year}-12-31`).isoWeek() };
 
@@ -86,26 +174,33 @@ export const getData = createSelector(
       }
 
       for (let i = 1; i <= yearLength[year]; i += 1) {
-        if (Object.keys(yearDataByWeek).length < i) {
+        if (yearDataByWeek.length < i) {
           return;
         }
 
+        const alerts = [];
         const yearDataLength = yearDataByWeek[i]
           ? yearDataByWeek[i].length - 1
           : 0;
 
-        let objectsReduced = { count: 0, week: i, year: parseInt(year, 10) };
-
         for (let index = 0; index <= yearDataLength; index += 1) {
           if (yearDataByWeek[i]) {
-            objectsReduced = Object.assign(objectsReduced, {
-              ...yearDataByWeek[i][index],
-              count: objectsReduced.count + yearDataByWeek[i][index].count,
-            });
+            alerts.push(yearDataByWeek[i][index]);
           }
         }
 
-        formattedData.push(objectsReduced);
+        const allConfidencesAggregated = alerts.reduce(
+          (acc, curr) => {
+            return {
+              ...curr,
+              alert__count: acc?.alert__count + curr?.alert__count,
+              count: acc?.alert__count + curr?.alert__count,
+            };
+          },
+          { alert__count: 0 }
+        );
+
+        formattedData.push(allConfidencesAggregated);
       }
     });
 
@@ -187,12 +282,13 @@ export const parseData = createSelector(
         return {
           ...d,
           compareYear,
-          compareCount: compareWeek ? compareWeek.count : null,
+          compareCount: compareWeek ? compareWeek.count : 0,
         };
       }
 
       return d;
     });
+
     return parsedData;
   }
 );
@@ -270,7 +366,7 @@ export const parseConfig = createSelector(
         unit: ` ${dataset.toUpperCase()} alerts`,
         color: colors.main,
         unitFormat: (value) =>
-          Number.isInteger(value) && formatNumber({ num: value, unit: ',' }),
+          Number.isInteger(value) ? formatNumber({ num: value, unit: ',' }) : 0,
       },
     ];
 
@@ -289,17 +385,17 @@ export const parseConfig = createSelector(
         color: '#49b5e3',
         nullValue: 'No data available',
         unitFormat: (value) =>
-          Number.isInteger(value) && formatNumber({ num: value, unit: ',' }),
+          Number.isInteger(value) ? formatNumber({ num: value, unit: ',' }) : 0,
       });
     }
 
     return {
       ...getChartConfig(colors, moment(latest), {}, ''),
       xAxis: {
+        dataKey: 'monthLabel',
         tickCount: 12,
-        interval: 4,
-        scale: 'point',
-        tickFormatter: (t) => moment(t).format('MMM'),
+        interval: 0,
+        tickFormatter: (t) => t.charAt(0).toUpperCase() + t.slice(1),
         ...(typeof endIndex === 'number' &&
           typeof startIndex === 'number' &&
           endIndex - startIndex < 10 && {
@@ -372,6 +468,7 @@ export const parseSentence = createSelector(
     getOptionsSelected,
     getLang,
     getIndicator,
+    getLanguage,
   ],
   (
     raw_data,
@@ -383,7 +480,8 @@ export const parseSentence = createSelector(
     indexes,
     options,
     lang,
-    indicator
+    indicator,
+    language
   ) => {
     if (!data || isEmpty(data)) return null;
     const {
@@ -432,14 +530,17 @@ export const parseSentence = createSelector(
     const seasonStartDate =
       sortedPeakWeeks.length > 0 && sortedPeakWeeks[0]?.date;
 
-    const seasonMonth = moment(seasonStartDate).format('MMMM');
-    const seasonDay = parseInt(moment(seasonStartDate).format('D'), 10);
+    const seasonMonth = localizeDate(seasonStartDate, language, 'MMMM');
+    const seasonDay = parseInt(
+      localizeDate(seasonStartDate, language, 'd'),
+      10
+    );
 
-    let seasonStatement = `late ${seasonMonth}`;
+    let seasonStatement = translateText('late {seasonMonth}', { seasonMonth });
     if (seasonDay <= 10) {
-      seasonStatement = `early ${seasonMonth}`;
+      seasonStatement = translateText('early {seasonMonth}', { seasonMonth });
     } else if (seasonDay > 10 && seasonDay <= 20) {
-      seasonStatement = `mid-${seasonMonth}`;
+      seasonStatement = translateText('mid-{seasonMonth}', { seasonMonth });
     }
 
     const total = sumBy(slicedData, 'count');
@@ -447,18 +548,18 @@ export const parseSentence = createSelector(
     let statusColor = colorRange[8];
     const { date } = lastDate || {};
 
-    let status = 'unusually low';
+    let status = translateText('unusually low');
     if (variance > 2) {
-      status = 'unusually high';
+      status = translateText('unusually high');
       statusColor = colorRange[0];
     } else if (variance <= 2 && variance > 1) {
-      status = 'high';
+      status = translateText('high');
       statusColor = colorRange[2];
     } else if (variance <= 1 && variance > -1) {
-      status = 'normal';
+      status = translateText('normal');
       statusColor = colorRange[4];
     } else if (variance <= -1 && variance > -2) {
-      status = 'low';
+      status = translateText('low');
       statusColor = colorRange[6];
     }
 
@@ -475,15 +576,14 @@ export const parseSentence = createSelector(
           : allAlertsWithInd;
     }
 
-    const formattedData = moment(date).format('Do of MMMM YYYY');
     const params = {
       location,
       indicator: indicatorLabel,
-      date: formattedData,
+      date: localizeWidgetSentenceDate(date, language),
       fires_season_start: seasonStatement,
       fire_season_length: sortedPeakWeeks.length,
-      start_date: moment(firstDate.date).format('Do of MMMM YYYY'),
-      end_date: moment(lastDate.date).format('Do of MMMM YYYY'),
+      start_date: localizeWidgetSentenceDate(firstDate.date, language),
+      end_date: localizeWidgetSentenceDate(lastDate.date, language),
       dataset_start_year: dataset === 'viirs' ? 2012 : 2001,
       dataset: dataset.toUpperCase(),
       count: {

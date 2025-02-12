@@ -22,7 +22,8 @@ class DynamicSentence extends PureComponent {
 
   render() {
     const { className, testId, handleMouseOver, handleMouseOut } = this.props;
-    const { sentence, params } = this.props.sentence;
+    const sentence = this.props.sentence?.sentence;
+    const params = this.props.sentence?.params;
     const { component } = params || {};
     const sentenceParams = {
       ...(params && params),
@@ -48,13 +49,14 @@ class DynamicSentence extends PureComponent {
             }
           } else {
             // eslint-disable-next-line security/detect-non-literal-regexp
-            const regex = new RegExp(`{${p}}`, 'g');
+            const DYNAMIC_PARAMETERS = new RegExp(`{${p}}`, 'g');
+            const PLACEHOLDER = new RegExp(`\\bPLACEHOLDER\\b`, 'g'); // regex to remove the bold from the word 'and' between indicators
+
             formattedSentence =
               formattedSentence &&
-              formattedSentence.replace(
-                regex,
-                `<b>${translateText(param)}</b>`
-              );
+              formattedSentence
+                .replace(DYNAMIC_PARAMETERS, `<b>${translateText(param)}</b>`)
+                .replace(PLACEHOLDER, `<span class="no-bold">and</span>`);
           }
         }
       });

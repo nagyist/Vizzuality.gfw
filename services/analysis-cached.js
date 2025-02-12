@@ -1,4 +1,5 @@
-import { cartoRequest, dataRequest } from 'utils/request';
+import qs from 'qs';
+import { cartoRequest, dataMartRequest, dataRequest } from 'utils/request';
 import { PROXIES } from 'utils/proxies';
 
 import forestTypes from 'data/forest-types';
@@ -20,6 +21,7 @@ const SQL_QUERIES = {
   lossTsc:
     'SELECT tsc_tree_cover_loss_drivers__driver, umd_tree_cover_loss__year, SUM(umd_tree_cover_loss__ha) AS umd_tree_cover_loss__ha, SUM("gfw_gross_emissions_co2e_all_gases__Mg") AS "gfw_gross_emissions_co2e_all_gases__Mg" FROM data {WHERE} GROUP BY tsc_tree_cover_loss_drivers__driver, umd_tree_cover_loss__year',
   loss: 'SELECT {select_location}, umd_tree_cover_loss__year, SUM(umd_tree_cover_loss__ha) AS umd_tree_cover_loss__ha, SUM("gfw_gross_emissions_co2e_all_gases__Mg") AS "gfw_gross_emissions_co2e_all_gases__Mg" FROM data {WHERE} GROUP BY umd_tree_cover_loss__year, {location} ORDER BY umd_tree_cover_loss__year, {location}',
+  lossNaturalForest: `SELECT {select_location}, sbtn_natural_forests__class, umd_tree_cover_loss__year, SUM(umd_tree_cover_loss__ha) AS umd_tree_cover_loss__ha, SUM("gfw_gross_emissions_co2e_all_gases__Mg") AS gfw_gross_emissions_co2e_all_gases__Mg FROM data {WHERE} GROUP BY sbtn_natural_forests__class, umd_tree_cover_loss__year, {location}`,
   lossFires:
     'SELECT {select_location}, umd_tree_cover_loss__year, SUM(umd_tree_cover_loss__ha) AS umd_tree_cover_loss__ha, SUM(umd_tree_cover_loss_from_fires__ha) AS "umd_tree_cover_loss_from_fires__ha" FROM data {WHERE} GROUP BY umd_tree_cover_loss__year, {location} ORDER BY umd_tree_cover_loss__year, {location}',
   lossFiresOTF:
@@ -35,7 +37,8 @@ const SQL_QUERIES = {
   carbonFluxOTF: `SELECT SUM("gfw_forest_carbon_net_flux__Mg_CO2e"), SUM("gfw_forest_carbon_gross_removals__Mg_CO2e"), SUM("gfw_forest_carbon_gross_emissions__Mg_CO2e") FROM data WHERE umd_tree_cover_density_2000__threshold >= {threshold} OR is__umd_tree_cover_gain = 'true'&geostore_origin={geostoreOrigin}&geostore_id={geostoreId}`,
   extent:
     'SELECT {select_location}, SUM(umd_tree_cover_extent_{extentYear}__ha) AS umd_tree_cover_extent_{extentYear}__ha, SUM(area__ha) AS area__ha FROM data {WHERE} GROUP BY {location} ORDER BY {location}',
-  gain: 'SELECT {select_location}, SUM("umd_tree_cover_gain__ha") AS "umd_tree_cover_gain__ha", SUM(umd_tree_cover_extent_2000__ha) AS umd_tree_cover_extent_2000__ha FROM data {WHERE} GROUP BY {location} ORDER BY {location}',
+  extentNaturalForest: `SELECT {select_location}, sbtn_natural_forests__class, SUM(area__ha) AS area__ha FROM data {WHERE} GROUP BY iso, sbtn_natural_forests__class, {location} ORDER BY {location}`,
+  gain: `SELECT {select_location}, SUM("umd_tree_cover_gain__ha") AS "umd_tree_cover_gain__ha", SUM(umd_tree_cover_extent_2000__ha) AS umd_tree_cover_extent_2000__ha FROM data {WHERE} AND umd_tree_cover_gain__period in ({baselineYear}) GROUP BY {location} ORDER BY {location}`,
   areaIntersection:
     'SELECT {select_location}, SUM(area__ha) AS area__ha {intersection} FROM data {WHERE} GROUP BY {location} {intersection} ORDER BY area__ha DESC',
   glad: 'SELECT {select_location}, alert__year, alert__week, SUM(alert__count) AS alert__count, SUM(alert_area__ha) AS alert_area__ha FROM data {WHERE} GROUP BY {location}, alert__year, alert__week',
@@ -71,10 +74,21 @@ const SQL_QUERIES = {
   historicalIntegratedAlertsDaily:
     "SELECT gfw_integrated_alerts__date, SUM(alert__count) AS alert__count, gfw_integrated_alerts__confidence FROM data {WHERE} AND gfw_integrated_alerts__date >= '{startDate}' AND gfw_integrated_alerts__date <= '{endDate}' GROUP BY gfw_integrated_alerts__date, gfw_integrated_alerts__confidence ORDER BY gfw_integrated_alerts__date DESC",
   biomassStock:
-    'SELECT SUM("whrc_aboveground_biomass_stock_2000__Mg") AS "whrc_aboveground_biomass_stock_2000__Mg", SUM("whrc_aboveground_co2_stock_2000__Mg") AS "whrc_aboveground_co2_stock_2000__Mg", SUM(umd_tree_cover_extent_2000__ha) AS umd_tree_cover_extent_2000__ha FROM data {WHERE}',
+    'SELECT SUM("whrc_aboveground_biomass_stock_2000__Mg") AS "whrc_aboveground_biomass_stock_2000__Mg", SUM("whrc_aboveground_co2_stock_2000__Mg") AS "whrc_aboveground_co2_stock_2000__Mg", SUM(umd_tree_cover_extent_2000__ha) AS umd_tree_cover_extent_2000__ha, SUM("gfw_aboveground_carbon_stocks_2000__Mg_C") as gfw_aboveground_carbon_stocks_2000__Mg_C, SUM("gfw_belowground_carbon_stocks_2000__Mg_C") as gfw_belowground_carbon_stocks_2000__Mg_C, SUM("gfw_soil_carbon_stocks_2000__Mg_C") as gfw_soil_carbon_stocks_2000__Mg_C FROM data {WHERE}',
   biomassStockGrouped:
     'SELECT {select_location}, SUM("whrc_aboveground_biomass_stock_2000__Mg") AS "whrc_aboveground_biomass_stock_2000__Mg", SUM("whrc_aboveground_co2_stock_2000__Mg") AS "whrc_aboveground_co2_stock_2000__Mg", SUM(umd_tree_cover_extent_2000__ha) AS umd_tree_cover_extent_2000__ha FROM data {WHERE} GROUP BY {location} ORDER BY {location}',
-  treeCoverGainByPlantationType: `SELECT CASE WHEN gfw_planted_forests__type IS NULL THEN 'Outside of Plantations' ELSE gfw_planted_forests__type END AS plantation_type, SUM(umd_tree_cover_gain__ha) as gain_area_ha FROM data {WHERE} GROUP BY gfw_planted_forests__type`,
+  organicSoilCarbon:
+    'SELECT {location}, SUM("gfw_soil_carbon_stocks_2000__Mg_C") as gfw_soil_carbon_stocks_2000__Mg_C, SUM("gfw_soil_carbon_stocks_2000__Mg_C") / SUM("umd_tree_cover_extent_2000__ha") as gfw_soil_carbon_density__t_C_per_ha, SUM("gfw_aboveground_carbon_stocks_2000__Mg_C") / SUM("umd_tree_cover_extent_2000__ha") AS gfw_aboveground_carbon_stocks_2000__t_C_per_ha, SUM("gfw_belowground_carbon_stocks_2000__Mg_C") / SUM("umd_tree_cover_extent_2000__ha") as gfw_belowground_carbon_stocks_2000__t_C_per_ha FROM data {WHERE} GROUP BY {location}',
+  organicSoilCarbonGrouped:
+    'SELECT {select_location}, CASE WHEN SUM("umd_tree_cover_extent_2000__ha") = 0 THEN NULL ELSE SUM("gfw_soil_carbon_stocks_2000__Mg_C") END AS "gfw_soil_carbon_stocks_2000__Mg_C", CASE WHEN SUM("umd_tree_cover_extent_2000__ha") = 0 THEN NULL ELSE SUM("gfw_soil_carbon_stocks_2000__Mg_C") / SUM("umd_tree_cover_extent_2000__ha") END AS soil_carbon_density__t_ha FROM data {WHERE} GROUP BY {location} ORDER BY {location}',
+  treeCoverGainByPlantationType: `SELECT CASE WHEN gfw_planted_forests__type IS NULL THEN 'Outside of Plantations' ELSE gfw_planted_forests__type END AS plantation_type, SUM(umd_tree_cover_gain__ha) as gain_area_ha FROM data {WHERE} AND umd_tree_cover_gain__period in ({baselineYear}) GROUP BY gfw_planted_forests__type`,
+  treeCoverOTF:
+    'SELECT SUM(area__ha) FROM data WHERE umd_tree_cover_density_2000__threshold >= {threshold}&geostore_id={geostoreId}',
+  treeCoverOTFExtent: 'SELECT SUM(area__ha) FROM data&geostore_id={geostoreId}',
+  treeCoverGainSimpleOTF:
+    'SELECT SUM(area__ha) FROM data&geostore_id={geostoreId}',
+  naturalForest:
+    'SELECT {location}, sbtn_natural_forests__class, SUM(area__ha) AS area__ha FROM data {WHERE} GROUP BY {location}, sbtn_natural_forests__class',
   netChangeIso:
     'SELECT {select_location}, stable, loss, gain, disturb, net, change, gfw_area__ha FROM data {WHERE}',
   netChange:
@@ -85,6 +99,10 @@ const SQL_QUERIES = {
     'SELECT {select_location}, umd_global_land_cover__ipcc_class, SUM(wri_tropical_tree_cover_extent__ha) AS wri_tropical_tree_cover_extent__ha FROM data {WHERE} AND wri_tropical_tree_cover__decile >= {decile} AND umd_global_land_cover__ipcc_class IS NOT NULL GROUP BY {location}, umd_global_land_cover__ipcc_class ORDER BY {location}, umd_global_land_cover__ipcc_class',
   treeCoverDensity:
     'SELECT {select_location}, wri_tropical_tree_cover__decile,  SUM(wri_tropical_tree_cover_extent__ha) AS wri_tropical_tree_cover_extent__ha FROM data {WHERE} AND wri_tropical_tree_cover__decile >= 0 GROUP BY {location}, wri_tropical_tree_cover__decile ORDER BY {location}, wri_tropical_tree_cover__decile',
+  treeLossOTF:
+    'SELECT umd_tree_cover_loss__year, SUM(area__ha) FROM data WHERE umd_tree_cover_loss__year >= {startYear} AND umd_tree_cover_loss__year <= {endYear} AND umd_tree_cover_density_{extentYear}__threshold >= {threshold} GROUP BY umd_tree_cover_loss__year&geostore_id={geostoreId}',
+  treeLossOTFExtent:
+    'SELECT SUM(area__ha) FROM data WHERE umd_tree_cover_density_2000__threshold >= {threshold}&geostore_id={geostoreId}',
 };
 
 const typeByGrouped = {
@@ -366,6 +384,56 @@ export const getTreeCoverLossByDriverType = (params) => {
   }));
 };
 
+export const getLossNaturalForest = (params) => {
+  const { forestType, landCategory, ifl, download } = params || {};
+
+  const requestUrl = getRequestUrl({
+    ...params,
+    dataset: 'annual',
+    datasetType: 'change',
+    version: 'v20240815',
+  });
+
+  if (!requestUrl) {
+    return new Promise(() => {});
+  }
+
+  const url = encodeURI(
+    `${requestUrl}${SQL_QUERIES.lossNaturalForest}`
+      .replace(
+        /{select_location}/g,
+        getLocationSelect({ ...params, cast: false })
+      )
+      .replace(/{location}/g, getLocationSelect(params))
+      .replace(
+        '{WHERE}',
+        getWHEREQuery({ ...params, dataset: 'annual', threshold: 0 })
+      )
+  );
+
+  if (download) {
+    const indicator = getIndicator(forestType, landCategory, ifl);
+    return {
+      name: `loss_natural_forest${
+        indicator ? `_in_${snakeCase(indicator.label)}` : ''
+      }__ha`,
+      url: getDownloadUrl(url),
+    };
+  }
+
+  return dataRequest.get(url).then((response) => ({
+    ...response,
+    data: {
+      data: response?.data?.map((d) => ({
+        ...d,
+        year: d.umd_tree_cover_loss__year,
+        area: d.umd_tree_cover_loss__ha,
+        emissions: d.gfw_gross_emissions_co2e_all_gases__mg,
+      })),
+    },
+  }));
+};
+
 // summed loss for single location
 export const getLoss = (params) => {
   const { forestType, landCategory, ifl, download } = params || {};
@@ -468,6 +536,7 @@ export const getEmissions = (params) => {
 export const getEmissionsLossOTF = (params) => {
   const { download, threshold, geostoreId, startYear, endYear } = params || {};
   const { emissionsLossOTF } = SQL_QUERIES;
+
   const requestUrl = getRequestUrl({
     ...params,
     dataset: 'annual',
@@ -671,6 +740,116 @@ export const getLossFires = (params) => {
   }));
 };
 
+export const getTreeLossOTF = async (params) => {
+  const {
+    forestType,
+    landCategory,
+    ifl,
+    download,
+    adm0,
+    geostore,
+    startYear,
+    endYear,
+    extentYear,
+    threshold,
+  } = params || {};
+
+  const geostoreId = geostore.id || adm0;
+  const urlForList = '/dataset/umd_tree_cover_loss/latest/query';
+  const urlForExtent = '/dataset/umd_tree_cover_density_2000/latest/query';
+  const sqlLoss = `?sql=${SQL_QUERIES.treeLossOTF}`;
+  const sqlExtent = `?sql=${SQL_QUERIES.treeLossOTFExtent}`;
+
+  const urlLoss = encodeURI(
+    `${urlForList + sqlLoss}`
+      .replace('{geostoreId}', geostoreId)
+      .replace('{startYear}', startYear)
+      .replace('{endYear}', endYear)
+      .replace('{threshold}', threshold)
+      .replace('{extentYear}', extentYear)
+  );
+  const urlExtent = encodeURI(
+    `${urlForExtent + sqlExtent}`
+      .replace('{geostoreId}', geostoreId)
+      .replace('{threshold}', threshold)
+  );
+
+  if (download) {
+    const indicator = getIndicator(forestType, landCategory, ifl);
+    return {
+      name: `treecover_loss_from_fires_by_region${
+        indicator ? `_in_${snakeCase(indicator.label)}` : ''
+      }__ha`,
+      url: getDownloadUrl(urlLoss),
+    };
+  }
+
+  const treeLoss = await dataRequest.get(urlLoss);
+  const extent = await dataRequest.get(urlExtent);
+
+  return {
+    loss: treeLoss?.data?.map((d) => ({
+      ...d,
+      area: d.area__ha,
+      year: d.umd_tree_cover_loss__year,
+    })),
+    extent: extent?.data?.[0]?.area__ha,
+  };
+};
+
+export const getTreeCoverOTF = async (params) => {
+  const { download, adm0, geostore, threshold } = params || {};
+
+  const geostoreId = geostore.id || adm0;
+  const urlBaseCover = '/dataset/umd_tree_cover_density_2000/latest/query';
+  const urlBaseExtent = '/dataset/gfw_pixel_area/latest/query';
+  const sqlCover = `?sql=${SQL_QUERIES.treeCoverOTF}`;
+  const sqlExtent = `?sql=${SQL_QUERIES.treeCoverOTFExtent}`;
+
+  const urlCover = encodeURI(
+    `${urlBaseCover + sqlCover}`
+      .replace('{threshold}', threshold)
+      .replace('{geostoreId}', geostoreId)
+  );
+
+  const urlExtent = encodeURI(
+    `${urlBaseExtent + sqlExtent}`.replace('{geostoreId}', geostoreId)
+  );
+
+  if (download) {
+    return {
+      name: `treecover_loss`,
+      url: getDownloadUrl(urlCover),
+    };
+  }
+
+  const treeCover = await dataRequest.get(urlCover);
+  const extent = await dataRequest.get(urlExtent);
+
+  return {
+    totalArea: extent.data[0]?.area__ha,
+    totalCover: treeCover.data[0]?.area__ha,
+    cover: treeCover.data[0]?.area__ha,
+    plantations: 0,
+  };
+};
+
+export const getTreeCoverGainOTF = async (params) => {
+  const { adm0, geostore } = params || {};
+  const geostoreId = geostore.id || adm0;
+  const urlBase = '/dataset/umd_tree_cover_gain/latest/query';
+  const sql = `?sql=${SQL_QUERIES.treeCoverGainSimpleOTF}`;
+
+  const url = encodeURI(`${urlBase + sql}`.replace('{geostoreId}', geostoreId));
+
+  const response = await dataRequest.get(url);
+
+  return {
+    gain: response.data[0]?.area__ha,
+    extent: params?.geostore?.areaHa || 0,
+  };
+};
+
 export const getLossFiresOTF = (params) => {
   const {
     forestType,
@@ -767,27 +946,44 @@ export const getLossFiresGrouped = (params) => {
 };
 
 export const getTreeCoverGainByPlantationType = (params) => {
-  const { forestType, landCategory, ifl, download } = params;
+  const {
+    forestType,
+    landCategory,
+    ifl,
+    download,
+    startYear = 2000,
+    endYear,
+  } = params;
 
   const requestUrl = getRequestUrl({
     ...params,
     dataset: 'annual',
     datasetType: 'summary',
-    version: 'v20221012',
   });
 
   if (!requestUrl) return new Promise(() => {});
 
   const sqlQuery = SQL_QUERIES.treeCoverGainByPlantationType;
 
+  const baselineYearQuery = [];
+  let startYearRef = parseInt(startYear, 10);
+
+  while (startYearRef < endYear) {
+    const nextYear = startYearRef + 5;
+    baselineYearQuery.push(`${startYearRef}-${nextYear}`);
+    startYearRef = nextYear;
+  }
+
   const url = encodeURI(
-    `${requestUrl}${sqlQuery}`.replace('{WHERE}', getWHEREQuery({ ...params }))
+    `${requestUrl}${sqlQuery}`
+      .replace('{baselineYear}', `'${baselineYearQuery.join("', '")}'`)
+      .replace('{WHERE}', getWHEREQuery({ ...params }))
   );
 
   if (download) {
     const indicator = getIndicator(forestType, landCategory, ifl);
     return {
-      name: `tree_cover_gain_by_plantation_type${
+      name: `tree_cover_gain_by_plantation_type_${startYear}-2020${
         indicator ? `_in_${snakeCase(indicator.label)}` : ''
       }__ha`,
       url: getDownloadUrl(url),
@@ -901,6 +1097,40 @@ export const getTropicalExtentGrouped = (params) => {
   }));
 };
 
+export const getNaturalForest = async (params) => {
+  const { download } = params || {};
+
+  const requestUrl = getRequestUrl({
+    ...params,
+    dataset: 'annual',
+    datasetType: 'summary',
+    version: 'v20240815',
+  });
+
+  if (!requestUrl) {
+    return new Promise(() => {});
+  }
+
+  const url = encodeURI(
+    `${requestUrl}${SQL_QUERIES.naturalForest}`
+      .replace(/{location}/g, getLocationSelect({ ...params, cast: false }))
+      .replace(/{location}/g, getLocationSelect({ ...params }))
+      .replace(
+        '{WHERE}',
+        getWHEREQuery({ ...params, dataset: 'annual', threshold: 0 })
+      )
+  );
+
+  if (download) {
+    return {
+      name: `natural_forest_2020__ha`,
+      url: getDownloadUrl(url),
+    };
+  }
+
+  return dataRequest.get(url);
+};
+
 export const getTreeCoverByLandCoverClass = (params) => {
   const { forestType, download, extentYear, landCategory, ifl } = params || {};
 
@@ -940,30 +1170,32 @@ export const getTreeCoverByLandCoverClass = (params) => {
 };
 
 // Net Change
-export const getNetChange = (params) => {
-  const { forestType, landCategory, ifl, download, adm1 } = params || {};
+export const getNetChange = async (params) => {
+  const { forestType, landCategory, ifl, type, adm0, adm1, adm2, download } =
+    params || {};
 
-  const requestUrl = getRequestUrl({
-    ...params,
-    dataset: 'net_change',
-    datasetType: 'umd',
-    version: 'v202209',
-  });
-
-  if (!requestUrl) {
-    return new Promise(() => {});
-  }
-
-  const sqlQuery = adm1 ? SQL_QUERIES.netChange : SQL_QUERIES.netChangeIso;
-
-  const url = encodeURI(
-    `${requestUrl}${sqlQuery}`
-      .replace(
-        /{select_location}/g,
-        getLocationSelect({ ...params, dataset: 'net_change', cast: false })
-      )
-      .replace('{WHERE}', getWHEREQuery({ ...params, dataset: 'net_change' }))
+  const requestParams = qs.stringify(
+    {
+      type,
+      adm0,
+      adm1,
+      adm2,
+      download,
+    },
+    { arrayFormat: 'comma' }
   );
+
+  const url = `/net-change/?${requestParams}`;
+
+  /**
+   * localhost:3000/api/datamart/net-change/?
+   * &iso=MEX
+   * &adm1=9
+   * &adm2=3
+   * &download=true
+   */
+
+  const response = await dataMartRequest.get(url);
 
   if (download) {
     const indicator = getIndicator(forestType, landCategory, ifl);
@@ -971,18 +1203,71 @@ export const getNetChange = (params) => {
       name: `net_tree_cover_change_from_height${
         indicator ? `_in_${snakeCase(indicator.label)}` : ''
       }__ha`,
+      url: `${window.location.origin}${PROXIES.DATA_API}${response.data?.url}`,
+    };
+  }
+
+  return {
+    data: {
+      data: response.data,
+    },
+  };
+};
+
+export const getExtentNaturalForest = (params) => {
+  const { forestType, landCategory, ifl, download } = params || {};
+
+  const requestUrl = getRequestUrl({
+    ...params,
+    dataset: 'annual',
+    datasetType: 'summary',
+    version: 'v20240815',
+  });
+
+  if (!requestUrl) {
+    return new Promise(() => {});
+  }
+
+  const url = encodeURI(
+    `${requestUrl}${SQL_QUERIES.extentNaturalForest}`
+      .replace(
+        /{select_location}/g,
+        getLocationSelect({ ...params, cast: false })
+      )
+      .replace(/{location}/g, getLocationSelect({ ...params }))
+      .replace(
+        '{WHERE}',
+        getWHEREQuery({ ...params, dataset: 'annual', threshold: 0 })
+      )
+  );
+
+  if (download) {
+    const indicator = getIndicator(forestType, landCategory, ifl);
+    return {
+      name: `natural_forest_${
+        indicator ? `_in_${snakeCase(indicator.label)}` : ''
+      }__ha`,
       url: getDownloadUrl(url),
     };
   }
 
-  return dataRequest.get(url).then((response) => ({
-    ...response,
-    data: {
-      data: response?.data?.map((d) => ({
-        ...d,
-      })),
-    },
-  }));
+  return dataRequest.get(url).then((response) => {
+    return {
+      ...response,
+      data: {
+        data: response?.data?.map((d) => {
+          return {
+            ...d,
+            extent:
+              d.sbtn_natural_forests__class === 'Natural Forest'
+                ? d.area__ha
+                : 0,
+            total_area: d.area__ha,
+          };
+        }),
+      },
+    };
+  });
 };
 
 // summed extent for single location
@@ -1084,7 +1369,14 @@ export const getExtentGrouped = (params) => {
 
 // summed gain for single location
 export const getGain = (params) => {
-  const { forestType, landCategory, ifl, download } = params || {};
+  const {
+    forestType,
+    landCategory,
+    ifl,
+    download,
+    startYear = 2000,
+    endYear,
+  } = params || {};
 
   const requestUrl = getRequestUrl({
     ...params,
@@ -1096,6 +1388,15 @@ export const getGain = (params) => {
     return new Promise(() => {});
   }
 
+  const baselineYearQuery = [];
+  let startYearRef = parseInt(startYear, 10);
+
+  while (startYearRef < endYear) {
+    const nextYear = startYearRef + 5;
+    baselineYearQuery.push(`${startYearRef}-${nextYear}`);
+    startYearRef = nextYear;
+  }
+
   const url = encodeURI(
     `${requestUrl}${SQL_QUERIES.gain}`
       .replace(
@@ -1103,13 +1404,14 @@ export const getGain = (params) => {
         getLocationSelect({ ...params, cast: false })
       )
       .replace(/{location}/g, getLocationSelect({ ...params }))
+      .replace('{baselineYear}', `'${baselineYearQuery.join("', '")}'`)
       .replace('{WHERE}', getWHEREQuery({ ...params, dataset: 'annual' }))
   );
 
   if (download) {
     const indicator = getIndicator(forestType, landCategory, ifl);
     return {
-      name: `treecover_gain_2000-2020${
+      name: `treecover_gain_${startYear}-2020${
         indicator ? `_in_${snakeCase(indicator.label)}` : ''
       }__ha`,
       url: getDownloadUrl(url),
@@ -1130,7 +1432,14 @@ export const getGain = (params) => {
 
 // disaggregated gain for child of location
 export const getGainGrouped = (params) => {
-  const { forestType, landCategory, ifl, download } = params || {};
+  const {
+    forestType,
+    landCategory,
+    ifl,
+    download,
+    startYear = 2000,
+    endYear,
+  } = params || {};
 
   const requestUrl = getRequestUrl({
     ...params,
@@ -1143,6 +1452,15 @@ export const getGainGrouped = (params) => {
     return new Promise(() => {});
   }
 
+  const baselineYearQuery = [];
+  let startYearRef = parseInt(startYear, 10);
+
+  while (startYearRef < parseInt(endYear, 10)) {
+    const nextYear = startYearRef + 5;
+    baselineYearQuery.push(`${startYearRef}-${nextYear}`);
+    startYearRef = nextYear;
+  }
+
   const url = encodeURI(
     `${requestUrl}${SQL_QUERIES.gain}`
       .replace(/{location}/g, getLocationSelect({ ...params, grouped: true }))
@@ -1150,13 +1468,14 @@ export const getGainGrouped = (params) => {
         /{select_location}/g,
         getLocationSelect({ ...params, grouped: true, cast: false })
       )
+      .replace('{baselineYear}', `'${baselineYearQuery.join("', '")}'`)
       .replace('{WHERE}', getWHEREQuery({ ...params, dataset: 'annual' }))
   );
 
   if (download) {
     const indicator = getIndicator(forestType, landCategory, ifl);
     return {
-      name: `treecover_gain_2000-2020_by_region${
+      name: `treecover_gain_${startYear}-2020_by_region${
         indicator ? `_in_${snakeCase(indicator.label)}` : ''
       }__ha`,
       url: getDownloadUrl(url),
@@ -2428,6 +2747,99 @@ export const getBiomassStock = (params) => {
       })),
     },
   }));
+};
+
+export const getSoilOrganicCarbon = (params) => {
+  const { forestType, landCategory, ifl, download } = params || {};
+
+  const requestUrl = getRequestUrl({
+    ...params,
+    dataset: 'annual',
+    datasetType: 'summary',
+  });
+
+  if (!requestUrl) {
+    return new Promise(() => {});
+  }
+
+  const url = encodeURI(
+    `${requestUrl}${SQL_QUERIES.organicSoilCarbon}`
+      .replace(
+        /{select_location}/g,
+        getLocationSelect({ ...params, cast: false })
+      )
+      .replace(/{location}/g, getLocationSelect(params))
+      .replace('{WHERE}', getWHEREQuery({ ...params, dataset: 'annual' }))
+  );
+
+  if (download) {
+    const indicator = getIndicator(forestType, landCategory, ifl);
+    return {
+      name: `soil_organic_carbon_by_region${
+        indicator ? `_in_${snakeCase(indicator.label)}` : ''
+      }__ha`,
+      url: getDownloadUrl(url),
+    };
+  }
+
+  return dataRequest.get(url).then((response) => ({
+    ...response,
+    data: response.data.map((d) => ({
+      iso: d.iso,
+      soil_carbon__t: d.gfw_soil_carbon_stocks_2000__mg_c,
+      soil_carbon_density__t_ha: d.gfw_soil_carbon_density__t_c_per_ha,
+      totalbiomass: d.gfw_soil_carbon_stocks_2000__mg_c,
+      biomassdensity: d.gfw_soil_carbon_density__t_c_per_ha,
+      gfw_aboveground_carbon_stocks_2000__mg_c:
+        d.gfw_aboveground_carbon_stocks_2000__t_c_per_ha,
+      gfw_belowground_carbon_stocks_2000__mg_c:
+        d.gfw_belowground_carbon_stocks_2000__t_c_per_ha,
+    })),
+  }));
+};
+
+// organic soil carbon grouped by location
+export const getOrganicSoilCarbonGrouped = (params) => {
+  const { forestType, landCategory, ifl, download } = params || {};
+
+  const requestUrl = getRequestUrl({
+    ...params,
+    dataset: 'annual',
+    datasetType: 'summary',
+    grouped: true,
+  });
+
+  if (!requestUrl) {
+    return new Promise(() => {});
+  }
+
+  const url = encodeURI(
+    `${requestUrl}${SQL_QUERIES.organicSoilCarbonGrouped}`
+      .replace(/{location}/g, getLocationSelect({ ...params, grouped: true }))
+      .replace(
+        /{select_location}/g,
+        getLocationSelect({ ...params, grouped: true, cast: false })
+      )
+      .replace('{WHERE}', getWHEREQuery({ ...params, dataset: 'annual' }))
+  );
+
+  if (download) {
+    const indicator = getIndicator(forestType, landCategory, ifl);
+    return {
+      name: `soil_organic_carbon_by_region${
+        indicator ? `_in_${snakeCase(indicator.label)}` : ''
+      }__ha`,
+      url: getDownloadUrl(url),
+    };
+  }
+
+  return dataRequest.get(url).then((response) => {
+    return response?.data?.map((d) => ({
+      ...d,
+      biomass: d.gfw_soil_carbon_stocks_2000__Mg_C,
+      biomassDensity: d.soil_carbon_density__t_ha,
+    }));
+  });
 };
 
 // Additional conditional fetches for providing context for queries.
